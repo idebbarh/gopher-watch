@@ -2,47 +2,28 @@ package gopherwatch
 
 import (
 	"fmt"
-	"os"
 	"time"
+
+	e "github.com/idebbarh/gopher-watch/events"
+	f "github.com/idebbarh/gopher-watch/files"
 )
 
-func listener(watchingPath string, events chan Event) {
+func Listener(watchingPath string, events chan e.Event) {
 	fmt.Printf("listening on : %s\n", watchingPath)
-	prevFolderEntriesInfo := FolderEntriesInfo{}
-	getFolderEntriesInfo(watchingPath, prevFolderEntriesInfo)
+	prevFolderEntriesInfo := f.FolderEntriesInfo{}
+	f.GetFolderEntriesInfo(watchingPath, prevFolderEntriesInfo)
 
 	for {
-		curFolderEntriesInfo := FolderEntriesInfo{}
-		getFolderEntriesInfo(watchingPath, curFolderEntriesInfo)
-
-		isSomethingChange, changeType, eventInfo := entriesScanner(watchingPath, prevFolderEntriesInfo, curFolderEntriesInfo)
+		curFolderEntriesInfo := f.FolderEntriesInfo{}
+		f.GetFolderEntriesInfo(watchingPath, curFolderEntriesInfo)
+		isSomethingChange, changeType, eventInfo := f.EntriesScanner(watchingPath, prevFolderEntriesInfo, curFolderEntriesInfo)
 
 		if isSomethingChange {
-			prevFolderEntriesInfo = make(FolderEntriesInfo)
-			getFolderEntriesInfo(watchingPath, prevFolderEntriesInfo)
-			events <- Event{Types: EventsType{Write: changeType == WRITE, Create: changeType == CREATE, Delete: changeType == DELETE, Rename: changeType == RENAME}, Info: &eventInfo}
+			prevFolderEntriesInfo = make(f.FolderEntriesInfo)
+			f.GetFolderEntriesInfo(watchingPath, prevFolderEntriesInfo)
+			events <- e.Event{Types: e.EventsType{Write: changeType == e.WRITE, Create: changeType == e.CREATE, Delete: changeType == e.DELETE, Rename: changeType == e.RENAME}, Info: &eventInfo}
 		}
 
 		time.Sleep(1 * time.Second)
 	}
-}
-
-func Watch(watchingPath string) chan Event {
-	fi, err := os.Stat(watchingPath)
-	if err != nil {
-		fmt.Printf("ERROR: Could not get info of %s : %v", watchingPath, err)
-		os.Exit(1)
-	}
-
-	mode := fi.Mode()
-
-	if !mode.IsDir() {
-		fmt.Printf("Error: could not listener to this path because its not a folder")
-		os.Exit(1)
-	}
-	events := make(chan Event)
-
-	go listener(watchingPath, events)
-
-	return events
 }

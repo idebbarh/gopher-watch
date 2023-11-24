@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	e "github.com/idebbarh/gopher-watch/events"
 )
 
 type DirInfo struct {
@@ -15,7 +17,7 @@ type DirInfo struct {
 
 type FolderEntriesInfo = map[string]*DirInfo
 
-func getFolderEntriesInfo(curPath string, entriesInfo FolderEntriesInfo) {
+func GetFolderEntriesInfo(curPath string, entriesInfo FolderEntriesInfo) {
 	entries, err := os.ReadDir(curPath)
 	if err != nil {
 		fmt.Printf("Error: could not get the entries of: %s: %s", curPath, err)
@@ -38,7 +40,7 @@ func getFolderEntriesInfo(curPath string, entriesInfo FolderEntriesInfo) {
 		entriesInfo[curPath].Entries = append(entriesInfo[curPath].Entries, entryPath)
 
 		if entryInfo.IsDir() {
-			getFolderEntriesInfo(entryPath, entriesInfo)
+			GetFolderEntriesInfo(entryPath, entriesInfo)
 			continue
 		}
 
@@ -48,9 +50,9 @@ func getFolderEntriesInfo(curPath string, entriesInfo FolderEntriesInfo) {
 	}
 }
 
-func entriesScanner(watchingPath string, prevFolderEntriesInfo FolderEntriesInfo, curFolderEntriesInfo FolderEntriesInfo) (bool, ChangeType, EventsInfo) {
+func EntriesScanner(watchingPath string, prevFolderEntriesInfo FolderEntriesInfo, curFolderEntriesInfo FolderEntriesInfo) (bool, e.ChangeType, e.EventsInfo) {
 	prevWatchingPathInfo, ok := prevFolderEntriesInfo[watchingPath]
-	eventInfo := EventsInfo{}
+	eventInfo := e.EventsInfo{}
 
 	if !ok {
 		for path := range prevFolderEntriesInfo {
@@ -63,7 +65,7 @@ func entriesScanner(watchingPath string, prevFolderEntriesInfo FolderEntriesInfo
 			}
 		}
 
-		return true, RENAME, eventInfo
+		return true, e.RENAME, eventInfo
 	}
 
 	curWatchingPathInfo := curFolderEntriesInfo[watchingPath]
@@ -75,7 +77,7 @@ func entriesScanner(watchingPath string, prevFolderEntriesInfo FolderEntriesInfo
 				break
 			}
 		}
-		return true, DELETE, eventInfo
+		return true, e.DELETE, eventInfo
 	}
 
 	if len(curWatchingPathInfo.Entries) > len(prevWatchingPathInfo.Entries) {
@@ -86,14 +88,14 @@ func entriesScanner(watchingPath string, prevFolderEntriesInfo FolderEntriesInfo
 				break
 			}
 		}
-		return true, CREATE, eventInfo
+		return true, e.CREATE, eventInfo
 	}
 
 	if len(curWatchingPathInfo.Entries) == len(prevWatchingPathInfo.Entries) {
 		for _, curEntryPath := range curWatchingPathInfo.Entries {
 			curEntryInfo := curFolderEntriesInfo[curEntryPath]
 			if curEntryInfo.isDir {
-				isSomethingChange, changeType, eventInfo := entriesScanner(curEntryPath, prevFolderEntriesInfo, curFolderEntriesInfo)
+				isSomethingChange, changeType, eventInfo := EntriesScanner(curEntryPath, prevFolderEntriesInfo, curFolderEntriesInfo)
 				if isSomethingChange {
 					return isSomethingChange, changeType, eventInfo
 				}
@@ -102,7 +104,7 @@ func entriesScanner(watchingPath string, prevFolderEntriesInfo FolderEntriesInfo
 				if !ok || prevEntryInfo.ModTime.Second() != curEntryInfo.ModTime.Second() {
 					if ok {
 						eventInfo.WriteInfo.Name = curEntryPath
-						return true, WRITE, eventInfo
+						return true, e.WRITE, eventInfo
 					} else {
 						for path := range prevFolderEntriesInfo {
 							_, ok := curFolderEntriesInfo[path]
@@ -113,12 +115,12 @@ func entriesScanner(watchingPath string, prevFolderEntriesInfo FolderEntriesInfo
 								break
 							}
 						}
-						return true, RENAME, eventInfo
+						return true, e.RENAME, eventInfo
 					}
 				}
 			}
 		}
 	}
 
-	return false, NOCHANGE, eventInfo
+	return false, e.NOCHANGE, eventInfo
 }
