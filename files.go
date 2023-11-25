@@ -5,8 +5,6 @@ import (
 	"os"
 	"strings"
 	"time"
-
-	e "github.com/idebbarh/gopher-watch/events"
 )
 
 type DirInfo struct {
@@ -50,9 +48,9 @@ func GetFolderEntriesInfo(curPath string, entriesInfo FolderEntriesInfo) {
 	}
 }
 
-func EntriesScanner(watchingPath string, prevFolderEntriesInfo FolderEntriesInfo, curFolderEntriesInfo FolderEntriesInfo) (bool, e.ChangeType, e.EventsInfo) {
+func EntriesScanner(watchingPath string, prevFolderEntriesInfo FolderEntriesInfo, curFolderEntriesInfo FolderEntriesInfo) (bool, ChangeType, EventsInfo) {
 	prevWatchingPathInfo, ok := prevFolderEntriesInfo[watchingPath]
-	eventInfo := e.EventsInfo{}
+	eventInfo := EventsInfo{}
 
 	if !ok {
 		for path := range prevFolderEntriesInfo {
@@ -65,7 +63,7 @@ func EntriesScanner(watchingPath string, prevFolderEntriesInfo FolderEntriesInfo
 			}
 		}
 
-		return true, e.RENAME, eventInfo
+		return true, RENAME, eventInfo
 	}
 
 	curWatchingPathInfo := curFolderEntriesInfo[watchingPath]
@@ -77,7 +75,7 @@ func EntriesScanner(watchingPath string, prevFolderEntriesInfo FolderEntriesInfo
 				break
 			}
 		}
-		return true, e.DELETE, eventInfo
+		return true, DELETE, eventInfo
 	}
 
 	if len(curWatchingPathInfo.Entries) > len(prevWatchingPathInfo.Entries) {
@@ -88,7 +86,7 @@ func EntriesScanner(watchingPath string, prevFolderEntriesInfo FolderEntriesInfo
 				break
 			}
 		}
-		return true, e.CREATE, eventInfo
+		return true, CREATE, eventInfo
 	}
 
 	if len(curWatchingPathInfo.Entries) == len(prevWatchingPathInfo.Entries) {
@@ -104,7 +102,7 @@ func EntriesScanner(watchingPath string, prevFolderEntriesInfo FolderEntriesInfo
 				if !ok || prevEntryInfo.ModTime.Second() != curEntryInfo.ModTime.Second() {
 					if ok {
 						eventInfo.WriteInfo.Name = curEntryPath
-						return true, e.WRITE, eventInfo
+						return true, WRITE, eventInfo
 					} else {
 						for path := range prevFolderEntriesInfo {
 							_, ok := curFolderEntriesInfo[path]
@@ -115,12 +113,12 @@ func EntriesScanner(watchingPath string, prevFolderEntriesInfo FolderEntriesInfo
 								break
 							}
 						}
-						return true, e.RENAME, eventInfo
+						return true, RENAME, eventInfo
 					}
 				}
 			}
 		}
 	}
 
-	return false, e.NOCHANGE, eventInfo
+	return false, NOCHANGE, eventInfo
 }
