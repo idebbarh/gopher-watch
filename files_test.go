@@ -1,10 +1,30 @@
 package gopherwatch
 
 import (
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
+
+type TestType struct {
+	EntryName string
+	IsDir     bool
+	Action    int
+}
+
+type ExpectedType struct {
+	ChangeType int
+	Name       string
+}
+
+type TestEntry struct {
+	Test     TestType
+	Expected ExpectedType
+}
+
+type TestEntries = []TestEntry
 
 type Time = time.Time
 
@@ -90,5 +110,147 @@ func TestGetFolderEntriesInfo(t *testing.T) {
 		if !entriesInfo[dirPath].isDir {
 			t.Errorf("Expected isDir=true for directory %s, but found false", dirPath)
 		}
+	}
+}
+
+func TestEntriesScanner(t *testing.T) {
+	tmpDir := t.TempDir()
+	defer os.RemoveAll(tmpDir)
+	testFiles := []string{"file1.txt", "file2.html", "file3.txt"}
+	testDirs := []string{"dir1", "dir2", "dir3"}
+	testEntries := TestEntries{}
+
+	for _, file := range testFiles {
+		testEntries = append(testEntries, TestEntry{Test: TestType{EntryName: file, IsDir: false, Action: CREATE}, Expected: ExpectedType{ChangeType: CREATE, Name: tmpDir + "/" + file}})
+		testEntries = append(testEntries, TestEntry{Test: TestType{EntryName: file, IsDir: false, Action: WRITE}, Expected: ExpectedType{ChangeType: WRITE, Name: tmpDir + "/" + file}})
+		testEntries = append(testEntries, TestEntry{Test: TestType{EntryName: file, IsDir: false, Action: DELETE}, Expected: ExpectedType{ChangeType: DELETE, Name: tmpDir + "/" + file}})
+	}
+
+	for _, dir := range testDirs {
+		testEntries = append(testEntries, TestEntry{Test: TestType{EntryName: dir, IsDir: true, Action: CREATE}, Expected: ExpectedType{ChangeType: CREATE, Name: tmpDir + "/" + dir}})
+		testEntries = append(testEntries, TestEntry{Test: TestType{EntryName: dir, IsDir: true, Action: DELETE}, Expected: ExpectedType{ChangeType: DELETE, Name: tmpDir + "/" + dir}})
+	}
+
+	prevFolderEntriesInfo := make(FolderEntriesInfo)
+	GetFolderEntriesInfo(tmpDir, prevFolderEntriesInfo)
+	curFolderEntriesInfo := make(FolderEntriesInfo)
+	GetFolderEntriesInfo(tmpDir, curFolderEntriesInfo)
+	isSomethingChanged, _, _ := EntriesScanner(tmpDir, prevFolderEntriesInfo, curFolderEntriesInfo)
+
+	if isSomethingChanged {
+		t.Error("Expected isSomethingChanged=false, but found true")
+	}
+
+	numToChangeType := map[int]string{0: "WRITE", 1: "CREATE", 2: "DELETE", 3: "RENAME", 4: "NOCHANGE"}
+
+	// test create event
+	for _, entry := range testEntries {
+		entryPath := tmpDir + "/" + entry.Test.EntryName
+
+		if entry.Test.Action == CREATE {
+			if entry.Test.IsDir {
+				err := os.Mkdir(entryPath, os.ModePerm)
+				if err != nil {
+					t.Fatalf("Failed to create test dir %s: %v", entry.Test.EntryName, err)
+				}
+			} else {
+				_, err := os.Create(entryPath)
+				if err != nil {
+					t.Fatalf("Failed to create test file %s: %v", entry.Test.EntryName, err)
+				}
+
+				time.Sleep(time.Second)
+			}
+		} else if entry.Test.Action == WRITE {
+			err := os.WriteFile(entryPath, []byte("new line"), os.ModePerm)
+			if err != nil {
+				t.Fatalf("Failed to write to file %s: %v", entry.Test.EntryName, err)
+			}
+		} else if entry.Test.Action == DELETE {
+			err := os.Remove(entryPath)
+			if err != nil {
+				t.Fatalf("Failed to delete test entry %s: %v", entry.Test.EntryName, err)
+			}
+		}
+
+		curFolderEntriesInfo = make(FolderEntriesInfo)
+		GetFolderEntriesInfo(tmpDir, curFolderEntriesInfo)
+
+		isSomethingChanged, changeType, eventInfo := EntriesScanner(tmpDir, prevFolderEntriesInfo, curFolderEntriesInfo)
+
+		if !isSomethingChanged {
+			t.Error("Expected isSomethingChanged=true, but found false")
+		}
+
+		if changeType != entry.Expected.ChangeType {
+			t.Errorf("Expected changeType=%s, but found %s", numToChangeType[entry.Expected.ChangeType], numToChangeType[changeType])
+		}
+
+		if entry.Test.Action == CREATE && eventInfo.CreateInfo.Name != entry.Expected.Name {
+			t.Errorf("Expected eventInfo.CreateInfo.name=%s, but found %s", entry.Expected.Name, eventInfo.CreateInfo.Name)
+		} else if entry.Test.Action == DELETE && eventInfo.DeleteInfo.Name != entry.Expected.Name {
+			t.Errorf("Expected eventInfo.DeleteInfo.name=%s, but found %s", entry.Expected.Name, eventInfo.WriteInfo.Name)
+		} else if entry.Test.Action == WRITE && eventInfo.WriteInfo.Name != entry.Expected.Name {
+			t.Errorf("Expected eventInfo.WriteInfo.name=%s, but found %s", entry.Expected.Name, eventInfo.WriteInfo.Name)
+		}
+
+		prevFolderEntriesInfo = make(FolderEntriesInfo)
+		GetFolderEntriesInfo(tmpDir, prevFolderEntriesInfo)
+	}
+
+	for _, file := range testFiles {
+		filePath := tmpDir + "/" + file
+		_, err := os.Create(filePath)
+		if err != nil {
+			t.Fatalf("Failed to create test file %s: %v", file, err)
+		}
+	}
+
+	for _, dir := range testDirs {
+		dirPath := tmpDir + "/" + dir
+		err := os.Mkdir(dirPath, os.ModePerm)
+		if err != nil {
+			t.Fatalf("Failed to create test directory %s: %v", dir, err)
+		}
+	}
+
+	prevFolderEntriesInfo = make(FolderEntriesInfo)
+	GetFolderEntriesInfo(tmpDir, prevFolderEntriesInfo)
+
+	for i, entry := range append(testFiles, testDirs...) {
+		entryPath := tmpDir + "/" + entry
+		newEntryPath := tmpDir + "/" + entry + fmt.Sprintf("%d", i)
+		err := os.Rename(entryPath, newEntryPath)
+		isDirEntry := len(strings.Split(entry, ".")) == 1
+		if err != nil {
+			t.Fatalf("Failed to rename entry %s to %s: %v", entryPath, newEntryPath, err)
+		}
+
+		curFolderEntriesInfo = make(FolderEntriesInfo)
+		GetFolderEntriesInfo(tmpDir, curFolderEntriesInfo)
+		isSomethingChanged, changeType, eventInfo := EntriesScanner(tmpDir, prevFolderEntriesInfo, curFolderEntriesInfo)
+
+		if !isSomethingChanged {
+			t.Error("Expected isSomethingChanged=true, but found false")
+		}
+
+		if changeType != RENAME {
+			t.Errorf("Expected changeType=%s, but found %s", numToChangeType[RENAME], numToChangeType[changeType])
+		}
+
+		if eventInfo.RenameInfo.IsDir != isDirEntry {
+			t.Errorf("Expected eventInfo.RenameInfo.IsDir=%v, but found %v", isDirEntry, eventInfo.RenameInfo.IsDir)
+		}
+
+		if eventInfo.RenameInfo.PrevName != entryPath {
+			t.Errorf("Expected eventInfo.RenameInfo.PrevName=%s, but found %s", entryPath, eventInfo.RenameInfo.PrevName)
+		}
+
+		if eventInfo.RenameInfo.NewName != newEntryPath {
+			t.Errorf("Expected eventInfo.RenameInfo.PrevName=%s, but found %s", newEntryPath, eventInfo.RenameInfo.NewName)
+		}
+
+		prevFolderEntriesInfo = make(FolderEntriesInfo)
+		GetFolderEntriesInfo(tmpDir, prevFolderEntriesInfo)
 	}
 }
