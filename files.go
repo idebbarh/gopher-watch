@@ -109,7 +109,7 @@ func EntriesScanner(watchingPath string, prevFolderEntriesInfo FolderEntriesInfo
 							if !ok {
 								eventInfo.RenameInfo.PrevName = path
 								eventInfo.RenameInfo.NewName = curEntryPath
-								eventInfo.RenameInfo.IsDir = true
+								eventInfo.RenameInfo.IsDir = false
 								break
 							}
 						}
