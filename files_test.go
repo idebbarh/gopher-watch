@@ -158,7 +158,6 @@ func TestEntriesScanner(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Failed to create test file %s: %v", entry.Test.EntryName, err)
 				}
-
 				time.Sleep(time.Second)
 			}
 		} else if entry.Test.Action == WRITE {
@@ -252,5 +251,87 @@ func TestEntriesScanner(t *testing.T) {
 
 		prevFolderEntriesInfo = make(FolderEntriesInfo)
 		GetFolderEntriesInfo(tmpDir, prevFolderEntriesInfo)
+	}
+}
+
+func TestListener(t *testing.T) {
+	tmpDir := t.TempDir()
+	var curTest TestEntry
+
+	testEvents := make(chan Event)
+
+	go Listener(tmpDir, testEvents)
+
+	go func() {
+		for {
+			select {
+			case event := <-testEvents:
+				switch curTest.Expected.ChangeType {
+				case CREATE:
+					if !event.Types.Create {
+						t.Error("Expected event.Types.Create=true , but found false")
+					}
+					if event.Info.CreateInfo.Name != curTest.Expected.Name {
+						t.Errorf("Expected event.Info.CreateInfo.Name=%s , but found %s", curTest.Expected.Name, event.Info.CreateInfo.Name)
+					}
+
+				case WRITE:
+					if !event.Types.Write {
+						t.Error("Expected event.Types.Write=true , but found false")
+					}
+
+				case DELETE:
+					if !event.Types.Delete {
+						t.Error("Expected event.Types.Delete=true , but found false")
+					}
+				}
+			}
+		}
+	}()
+
+	testFiles := []string{"file1.txt", "file2.html", "file3.txt"}
+	testDirs := []string{"dir1", "dir2", "dir3"}
+
+	testEntries := TestEntries{}
+
+	for _, file := range testFiles {
+		testEntries = append(testEntries, TestEntry{Test: TestType{EntryName: file, IsDir: false, Action: CREATE}, Expected: ExpectedType{ChangeType: CREATE, Name: tmpDir + "/" + file}})
+		testEntries = append(testEntries, TestEntry{Test: TestType{EntryName: file, IsDir: false, Action: WRITE}, Expected: ExpectedType{ChangeType: WRITE, Name: tmpDir + "/" + file}})
+		testEntries = append(testEntries, TestEntry{Test: TestType{EntryName: file, IsDir: false, Action: DELETE}, Expected: ExpectedType{ChangeType: DELETE, Name: tmpDir + "/" + file}})
+	}
+
+	for _, dir := range testDirs {
+		testEntries = append(testEntries, TestEntry{Test: TestType{EntryName: dir, IsDir: true, Action: CREATE}, Expected: ExpectedType{ChangeType: CREATE, Name: tmpDir + "/" + dir}})
+		testEntries = append(testEntries, TestEntry{Test: TestType{EntryName: dir, IsDir: true, Action: DELETE}, Expected: ExpectedType{ChangeType: DELETE, Name: tmpDir + "/" + dir}})
+	}
+
+	for _, testEntry := range testEntries {
+		entryPath := tmpDir + "/" + testEntry.Test.EntryName
+		curTest = testEntry
+		if testEntry.Test.Action == CREATE {
+			if testEntry.Test.IsDir {
+				err := os.Mkdir(entryPath, os.ModePerm)
+				if err != nil {
+					t.Fatalf("Failed to create test dir %s: %v", testEntry.Test.EntryName, err)
+				}
+			} else {
+				_, err := os.Create(entryPath)
+				if err != nil {
+					t.Fatalf("Failed to create test file %s: %v", testEntry.Test.EntryName, err)
+				}
+			}
+		} else if testEntry.Test.Action == WRITE {
+			err := os.WriteFile(entryPath, []byte("new line"), os.ModePerm)
+			if err != nil {
+				t.Fatalf("Failed to write to file %s: %v", testEntry.Test.EntryName, err)
+			}
+		} else if testEntry.Test.Action == DELETE {
+			err := os.Remove(entryPath)
+			if err != nil {
+				t.Fatalf("Failed to delete test entry %s: %v", testEntry.Test.EntryName, err)
+			}
+		}
+
+		time.Sleep(2 * time.Second)
 	}
 }
